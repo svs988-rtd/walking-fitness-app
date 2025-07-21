@@ -2,11 +2,21 @@ import React, { useState, useEffect, useRef } from 'react';
 import './WalkingTimer.css';
 import WalkingAnimation from './WalkingAnimation';
 import ProgressionRecommendation from './ProgressionRecommendation';
+import WalkingMap from './WalkingMap';
+import './WalkingMap.css';
+import 'leaflet/dist/leaflet.css';
+
+interface GPSCoordinate {
+  lat: number;
+  lng: number;
+  timestamp: number;
+}
 
 interface WalkingSession {
   date: string;
   duration: number;
   completed: boolean;
+  gpsTrack?: GPSCoordinate[];
 }
 
 const WalkingTimer: React.FC = () => {
@@ -15,7 +25,10 @@ const WalkingTimer: React.FC = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [targetTime, setTargetTime] = useState(300); // 5 minutes default
   const [sessions, setSessions] = useState<WalkingSession[]>([]);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [currentTrack, setCurrentTrack] = useState<GPSCoordinate[]>([]);
+  const [gpsEnabled, setGpsEnabled] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const gpsWatchRef = useRef<number | null>(null);
   const hasCompletedRef = useRef(false);
 
   useEffect(() => {
@@ -63,7 +76,8 @@ const WalkingTimer: React.FC = () => {
       const session: WalkingSession = {
         date: new Date().toISOString(),
         duration: targetTime,
-        completed: true
+        completed: true,
+        gpsTrack: currentTrack.length > 0 ? currentTrack : undefined
       };
       
       setSessions(prevSessions => {
@@ -79,6 +93,65 @@ const WalkingTimer: React.FC = () => {
     }
   }, [currentTime, targetTime, isRunning]);
 
+  // GPS tracking effect
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (isRunning && !isPaused && gpsEnabled) {
+      if ('geolocation' in navigator) {
+        gpsWatchRef.current = navigator.geolocation.watchPosition(
+          (position) => {
+            const coordinate: GPSCoordinate = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              timestamp: Date.now()
+            };
+            setCurrentTrack(prev => [...prev, coordinate]);
+          },
+          (error) => {
+            console.error('GPS tracking error:', error);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          }
+        );
+      }
+    } else {
+      if (gpsWatchRef.current) {
+        navigator.geolocation.clearWatch(gpsWatchRef.current);
+        gpsWatchRef.current = null;
+      }
+    }
+
+    return () => {
+      if (gpsWatchRef.current) {
+        navigator.geolocation.clearWatch(gpsWatchRef.current);
+      }
+    };
+  }, [isRunning, isPaused, gpsEnabled]);
+
+  const requestGPSPermission = async () => {
+    if ('geolocation' in navigator) {
+      try {
+        const permission = await navigator.permissions.query({ name: 'geolocation' });
+        if (permission.state === 'granted') {
+          setGpsEnabled(true);
+        } else if (permission.state === 'prompt') {
+          navigator.geolocation.getCurrentPosition(
+            () => setGpsEnabled(true),
+            (error) => {
+              console.error('GPS permission denied:', error);
+              setGpsEnabled(false);
+            }
+          );
+        }
+      } catch (error) {
+        console.error('GPS permission error:', error);
+      }
+    }
+  };
+
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -89,6 +162,7 @@ const WalkingTimer: React.FC = () => {
     setIsRunning(true);
     setIsPaused(false);
     hasCompletedRef.current = false;
+    setCurrentTrack([]); // Reset GPS track for new session
   };
 
   const handlePause = () => {
@@ -109,7 +183,8 @@ const WalkingTimer: React.FC = () => {
       const session: WalkingSession = {
         date: new Date().toISOString(),
         duration: currentTime,
-        completed: false
+        completed: false,
+        gpsTrack: currentTrack.length > 0 ? currentTrack : undefined
       };
       
       const updatedSessions = [...sessions, session];
@@ -118,6 +193,7 @@ const WalkingTimer: React.FC = () => {
     }
     
     setCurrentTime(0);
+    setCurrentTrack([]); // Reset GPS track
   };
 
 
@@ -135,6 +211,21 @@ const WalkingTimer: React.FC = () => {
       />
       
       <WalkingAnimation isActive={isRunning && !isPaused} />
+      
+      <div className="gps-controls">
+        <button 
+          className={`btn btn-gps ${gpsEnabled ? 'active' : ''}`}
+          onClick={requestGPSPermission}
+          disabled={isRunning}
+        >
+          📍 {gpsEnabled ? 'GPS Enabled' : 'Enable GPS Tracking'}
+        </button>
+        {gpsEnabled && currentTrack.length > 0 && (
+          <span className="gps-status">
+            📊 {currentTrack.length} GPS points recorded
+          </span>
+        )}
+      </div>
       
       <div className="timer-display">
         <div className="progress-circle">
@@ -206,6 +297,12 @@ const WalkingTimer: React.FC = () => {
           <option value={1800}>30 minutes</option>
         </select>
       </div>
+
+      <WalkingMap 
+        sessions={sessions}
+        currentTrack={currentTrack}
+        isTracking={isRunning && !isPaused && gpsEnabled}
+      />
     </div>
   );
 };
