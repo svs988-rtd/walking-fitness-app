@@ -30,6 +30,7 @@ const WalkingTimer: React.FC = () => {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const gpsWatchRef = useRef<number | null>(null);
   const hasCompletedRef = useRef(false);
+  const currentTrackRef = useRef<GPSCoordinate[]>([]);
 
   useEffect(() => {
     const storedSessions = localStorage.getItem('walkingSessions');
@@ -77,7 +78,7 @@ const WalkingTimer: React.FC = () => {
         date: new Date().toISOString(),
         duration: targetTime,
         completed: true,
-        gpsTrack: currentTrack.length > 0 ? currentTrack : undefined
+        gpsTrack: currentTrackRef.current.length > 0 ? currentTrackRef.current : undefined
       };
       
       setSessions(prevSessions => {
@@ -130,6 +131,11 @@ const WalkingTimer: React.FC = () => {
       }
     };
   }, [isRunning, isPaused, gpsEnabled]);
+
+  // Keep ref in sync with currentTrack state
+  useEffect(() => {
+    currentTrackRef.current = currentTrack;
+  }, [currentTrack]);
 
   const requestGPSPermission = async () => {
     if ('geolocation' in navigator) {
@@ -184,7 +190,7 @@ const WalkingTimer: React.FC = () => {
         date: new Date().toISOString(),
         duration: currentTime,
         completed: false,
-        gpsTrack: currentTrack.length > 0 ? currentTrack : undefined
+        gpsTrack: currentTrackRef.current.length > 0 ? currentTrackRef.current : undefined
       };
       
       const updatedSessions = [...sessions, session];
